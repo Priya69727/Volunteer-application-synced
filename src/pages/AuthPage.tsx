@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { AuthField, Button, Icon, Logo, photos, type AuthView } from "../components/shared";
 
-export function AuthPage({ onLogin, onRegister }: { onLogin: (email: string, password: string) => Promise<void>; onRegister: (fullName: string, email: string, password: string, extra: { phone: string; location: string }) => Promise<void> }) {
+export function AuthPage({ onLogin, onRegister, notice = "" }: { onLogin: (email: string, password: string) => Promise<void>; onRegister: (fullName: string, email: string, password: string, extra: { phone: string; location: string }) => Promise<void>; notice?: string }) {
   const [busy, setBusy] = useState(false);
   const [view, setView] = useState<AuthView>("login");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(notice);
   const [legalView, setLegalView] = useState("");
 
   const submit = async (event: React.FormEvent<HTMLFormElement>) => {

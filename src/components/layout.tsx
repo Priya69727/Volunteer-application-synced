@@ -43,7 +43,7 @@ export function Sidebar({ page, setPage, open, close, logout }: { page: Page; se
   );
 }
 
-export function Topbar({ page, setPage, openMenu, searchQuery, onSearchChange }: { page: Page; setPage: (p: Page) => void; openMenu: () => void; searchQuery: string; onSearchChange: (query: string) => void }) {
+export function Topbar({ page, setPage, openMenu, onOpenNotification }: { page: Page; setPage: (p: Page) => void; openMenu: () => void; onOpenNotification: (id: string | null) => void }) {
   const { data } = useDemoStore();
   const { notifications, readIds, markRead, me } = usePortal();
   const [notes, setNotes] = useState(false);
@@ -55,13 +55,12 @@ export function Topbar({ page, setPage, openMenu, searchQuery, onSearchChange }:
         <span>Volunteer portal</span><Icon name="chevron" size={14} /><strong>{pageTitles[page]}</strong>
       </div>
       <div className="topbar-actions">
-        <div className="top-search"><Icon name="search" size={18} /><input aria-label="Search opportunities" placeholder="Search opportunities..." value={searchQuery} onChange={(event) => onSearchChange(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") setPage("projects"); }} /></div>
         <div className="notification-wrap">
           <button className="icon-btn notification-button" onClick={() => setNotes(!notes)} aria-label={`Notifications, ${unreadCount} unread`}><Icon name="bell" />{unreadCount > 0 && <span />}</button>
           {notes && (
             <div className="notification-popover">
-              <div className="popover-head"><strong>Notifications</strong><button onClick={() => { setPage("notifications"); setNotes(false); }}>View all</button></div>
-              {notifications.slice(0, 3).map((n) => <NotificationItem key={n.id} title={n.title} body={n.body} time={ago(n.at)} unread={!readIds.includes(n.id)} onClick={() => { markRead([n.id]); setPage("notifications"); setNotes(false); }} />)}
+              <div className="popover-head"><strong>Notifications</strong><button onClick={() => { onOpenNotification(null); setPage("notifications"); setNotes(false); }}>View all</button></div>
+              {notifications.slice(0, 3).map((n) => <NotificationItem key={n.id} title={n.title} body={n.body} showBody={false} time={ago(n.at)} unread={!readIds.includes(n.id)} onClick={() => { markRead([n.id]); onOpenNotification(n.id); setPage("notifications"); setNotes(false); }} />)}
               {!notifications.length && <p style={{ padding: 16 }}>No notifications yet.</p>}
             </div>
           )}
@@ -74,6 +73,8 @@ export function Topbar({ page, setPage, openMenu, searchQuery, onSearchChange }:
 
 export function AppShell({ logout }: { logout: () => void }) {
   const [navigation] = useState(readNavigationState);
+  const [openedNotificationId, setOpenedNotificationId] = useState<string | null>(null);
+  const [notificationViewKey, setNotificationViewKey] = useState(0);
   const [page, setPage] = useState<Page>(() => {
     if (navigation.page === "project-detail" && !navigation.selected) return "dashboard";
     if (navigation.page === "application-detail" && !navigation.selectedApplicationId) return "applications";
@@ -90,6 +91,10 @@ export function AppShell({ logout }: { logout: () => void }) {
     updateNavigationState({ searchQuery: query });
     setSearchQuery(query);
   };
+  const openNotification = (id: string | null) => {
+    setOpenedNotificationId(id);
+    setNotificationViewKey((current) => current + 1);
+  };
   let content: React.ReactNode;
   switch (page) {
     case "dashboard": content = <DashboardPage go={changePage} />; break;
@@ -105,14 +110,14 @@ export function AppShell({ logout }: { logout: () => void }) {
     case "posts": content = <PostsPage go={changePage} />; break;
     case "networking": content = <NetworkingPage />; break;
     case "settings": content = <SettingsPage />; break;
-    case "notifications": content = <NotificationsPage />; break;
+    case "notifications": content = <NotificationsPage key={`${notificationViewKey}-${openedNotificationId ?? "inbox"}`} initialNotificationId={openedNotificationId} />; break;
   }
 
   return (
     <div className="app-shell">
       <Sidebar page={page} setPage={changePage} open={menu} close={() => setMenu(false)} logout={logout} />
       <div className="app-main">
-        <Topbar page={page} setPage={changePage} openMenu={() => setMenu(true)} searchQuery={searchQuery} onSearchChange={changeSearchQuery} />
+        <Topbar page={page} setPage={changePage} openMenu={() => setMenu(true)} onOpenNotification={openNotification} />
         {content}
       </div>
     </div>

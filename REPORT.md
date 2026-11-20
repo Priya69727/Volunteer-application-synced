@@ -84,11 +84,11 @@ The patched [`config.py`](file:///C:/Users/pvhat/OneDrive/Desktop/NGO_Management
 
 ### 3.4 Role Guard
 
-`App.tsx` has a hard-coded `PORTAL_ROLES` array: `["Member", "Volunteer", "Admin", "Project Manager", "Staff"]`. After login, if the returned user's role is **not** in this list, the portal immediately calls `api.logout()` and shows the message:
+`App.tsx` has a hard-coded `PORTAL_ROLES` array: `["Member", "Volunteer"]`. After login, if the returned user's role is **not** in this list, the portal immediately calls `api.logout()` and shows the message:
 
 > *"This portal is for volunteers. Please use the main Hope Foundation system."*
 
-Every backend `/api/portal/*` route also runs `_guard(user)` which checks the same set, so protection is enforced both client-side and server-side.
+Every backend `/api/portal/*` route also runs `_guard(user)` which checks the same set, so Admin, Project Manager, Staff, and Board accounts are directed to the main system instead of receiving a missing-volunteer-profile error.
 
 ---
 
@@ -512,9 +512,9 @@ The "Forgot password?" flow shows a static message. The backend has no password-
 
 All API endpoints return complete result sets with no pagination. For users with many applications or attendance records, response size could grow large. `contributions` is capped at 200 rows client-side.
 
-### Staff Roles Cannot Use the Portal to Apply
+### Main-System Staff Use the Main App
 
-The role guard (`_guard`) allows `Admin`, `Project Manager`, and `Staff` to access the portal to *view* it, but `apply()` (POST `/api/portal/applications`) additionally checks `user.role not in {"Member", "Volunteer"}` and returns 403 for staff accounts.
+The portal is limited to `Member` and `Volunteer` accounts. `Admin`, `Project Manager`, `Staff`, and `Board` accounts should use the main Hope Foundation system.
 
 ### No Email Notifications
 

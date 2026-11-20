@@ -134,7 +134,7 @@ export function Status({ children, tone = "info" }: { children: React.ReactNode;
 }
 
 export function StatCard({ icon, label, value, note, tone }: { icon: IconName; label: string; value: string; note: string; tone: string }) {
-  return <article className="stat-card"><span className={`stat-icon ${tone}`}><Icon name={icon} /></span><div><span className="stat-label">{label}</span><strong>{value}</strong><small>{note}</small></div></article>;
+  return <article className={`stat-card stat-card-${tone}`}><span className={`stat-icon ${tone}`}><Icon name={icon} /></span><div><span className="stat-label">{label}</span><strong>{value}</strong><small>{note}</small></div></article>;
 }
 
 export function Avatar({ name = "Asha Sharma", large = false, image }: { name?: string; large?: boolean; image?: string }) {
@@ -157,8 +157,8 @@ export function SectionTitle({ title, action, onClick }: { title: string; action
   return <div className="section-title"><h2>{title}</h2>{action && onClick && <button onClick={onClick}>{action}<Icon name="arrow" size={16} /></button>}</div>;
 }
 
-export function NotificationItem({ title, body, time, unread = false, onClick }: { title: string; body: string; time: string; unread?: boolean; onClick?: () => void }) {
-  return <button className={`notification-item ${unread ? "unread" : ""}`} onClick={onClick}><span className="notification-icon"><Icon name="bell" size={18} /></span><span><strong>{title}</strong><p>{body}</p><small>{time}</small></span>{unread && <i />}</button>;
+export function NotificationItem({ title, body, time, unread = false, onClick, showBody = true }: { title: string; body: string; time: string; unread?: boolean; onClick?: () => void; showBody?: boolean }) {
+  return <button className={`notification-item ${unread ? "unread" : ""}`} onClick={onClick}><span className="notification-icon"><Icon name="bell" size={18} /></span><span><strong>{title}</strong>{showBody && <p>{body}</p>}<small>{time}</small></span>{unread && <i />}</button>;
 }
 
 export function Empty({ title, body }: { title: string; body: string }) {
@@ -255,13 +255,6 @@ export const apps = [
   { name: "Learning Together", type: "Project", date: "28 Sep 2026", status: "Approved", tone: "success" as const, updated: "Today" },
   { name: "Clean Shores Initiative", type: "Project", date: "24 Sep 2026", status: "Pending", tone: "info" as const, updated: "24 Sep" },
   { name: "Tree Plantation Drive", type: "Event", date: "10 Sep 2026", status: "Rejected", tone: "danger" as const, updated: "14 Sep" },
-];
-
-export const people = [
-  { name: "Ravi Kumar", place: "Pune", skills: ["Environment", "Team leadership"], initials: "RK" },
-  { name: "Neha Joshi", place: "Mumbai", skills: ["Teaching", "Community care"], initials: "NJ" },
-  { name: "Sara Ali", place: "Pune", skills: ["Healthcare", "Event management"], initials: "SA" },
-  { name: "John Dsouza", place: "Nashik", skills: ["Photography", "Social media"], initials: "JD" },
 ];
 
 export function Fact({ icon, label, value }: { icon: IconName; label: string; value: string }) {

@@ -1,18 +1,37 @@
 import { Avatar, Button, Icon, OpportunityCard, SectionTitle, StatCard, Status, cardFor, type Page } from "../components/shared";
 import { usePortal } from "../components/portal";
-import { fmtDate, fmtTime, toneFor } from "../api";
+import { fmtDate, fmtTime, getProfileCompletion, toneFor } from "../api";
 
 function MiniApplication({ title, type, status, applied, onClick }: { title: string; type: string; status: string; applied: string; onClick: () => void }) {
   return <button className="mini-application" onClick={onClick}><span className="mini-icon"><Icon name={type === "Event" ? "calendar" : "folder"} /></span><span><strong>{title}</strong><small>{type} · Applied {applied}</small></span><Status tone={toneFor(status)}>{status}</Status><Icon name="chevron" size={16} /></button>;
 }
 
 export function DashboardPage({ go }: { go: (p: Page) => void }) {
-  const { me, opportunities, applications, assignments, select, selectApplication, selectAssignment } = usePortal();
+  const { me, opportunities, applications, assignments, contributions, select, selectApplication, selectAssignment } = usePortal();
   const today = new Intl.DateTimeFormat("en", { weekday: "long", day: "numeric", month: "long" }).format(new Date());
   const stats = me!.stats;
+  const profile = me!.profile;
+  const profileCompletion = getProfileCompletion(profile);
   const next = assignments.find((a) => a.group !== "Completed");
   const nextDate = next?.startsAt ?? next?.startsOn ?? null;
   const upcoming = assignments.filter((a) => a.group === "Upcoming").length;
+  const calendarItems = [
+    ...assignments.filter((assignment) => assignment.group === "Upcoming").map((assignment) => ({
+      id: assignment.id,
+      title: assignment.title,
+      date: assignment.startsAt ?? assignment.startsOn,
+      kind: "assignment" as const,
+      assignment,
+    })),
+    ...opportunities.filter((opportunity) => opportunity.kind === "event" && opportunity.startsAt && new Date(opportunity.startsAt).getTime() >= Date.now()).map((opportunity) => ({
+      id: opportunity.id,
+      title: opportunity.title,
+      date: opportunity.startsAt,
+      kind: "event" as const,
+      opportunity,
+    })),
+  ].filter((item) => item.date).sort((a, b) => new Date(a.date!).getTime() - new Date(b.date!).getTime()).slice(0, 3);
+  const recentActivities = contributions.items.filter((item) => item.status === "Present" || item.status === "Late").slice(0, 3);
   return (
     <div className="page">
       <section className="welcome-card">
@@ -28,6 +47,11 @@ export function DashboardPage({ go }: { go: (p: Page) => void }) {
         <StatCard icon="briefcase" label="Current assignments" value={String(stats.assignments)} note="Pending or active" tone="violet" />
         <StatCard icon="clock" label="Volunteer hours" value={String(Math.round(stats.hours * 10) / 10)} note={`${stats.days} contribution days`} tone="green" />
       </div>
+      <section className="panel dashboard-profile-progress">
+        <div><span className="eyebrow">YOUR PROFILE</span><h2>{profileCompletion}% complete</h2><p>{profileCompletion === 100 ? "Your profile is ready to help organisers understand your experience." : "A complete profile helps organisers match you with meaningful opportunities."}</p></div>
+        <div className="profile-progress-track" role="progressbar" aria-label="Profile completion" aria-valuemin={0} aria-valuemax={100} aria-valuenow={profileCompletion}><span style={{ width: `${profileCompletion}%` }} /></div>
+        <Button variant="secondary" onClick={() => go("profile")}>{profileCompletion === 100 ? "View profile" : "Complete profile"}</Button>
+      </section>
       <div className="dashboard-grid">
         <section>
           <SectionTitle title="Open opportunities" action="View all" onClick={() => go("projects")} />
@@ -40,6 +64,36 @@ export function DashboardPage({ go }: { go: (p: Page) => void }) {
             {!applications.length && <p style={{ padding: 16 }}>You haven’t applied yet.</p>}
           </div>
         </aside>
+      </div>
+      <div className="dashboard-insights-grid">
+        <section className="panel dashboard-calendar-preview">
+          <div className="dashboard-panel-heading"><div><span className="eyebrow">PLAN AHEAD</span><h2>Upcoming dates</h2></div><button onClick={() => go("assignments")}>My assignments <Icon name="arrow" size={15} /></button></div>
+          {calendarItems.length ? calendarItems.map((item) => (
+            <button className="dashboard-calendar-row" key={`${item.kind}-${item.id}`} onClick={() => {
+              if (item.kind === "assignment") {
+                selectAssignment(item.id);
+                go("assignment-detail");
+              } else {
+                select({ kind: "event", id: item.id });
+                go("project-detail");
+              }
+            }}>
+              <span className="dashboard-date-tile"><strong>{fmtDate(item.date, { day: "numeric" })}</strong><small>{fmtDate(item.date, { month: "short" }).toUpperCase()}</small></span>
+              <span><strong>{item.title}</strong><small>{item.kind === "event" ? "Community event" : "Volunteer assignment"}</small></span>
+              <Icon name="chevron" size={16} />
+            </button>
+          )) : <p className="dashboard-insight-empty">Your upcoming assignments and registered events will appear here.</p>}
+        </section>
+        <section className="panel dashboard-recent-activity">
+          <div className="dashboard-panel-heading"><div><span className="eyebrow">YOUR JOURNEY</span><h2>Recently completed</h2></div><button onClick={() => go("contributions")}>View history <Icon name="arrow" size={15} /></button></div>
+          {recentActivities.length ? recentActivities.map((item, index) => (
+            <div className="dashboard-recent-row" key={`${item.date}-${item.name}-${index}`}>
+              <span className="recent-activity-icon"><Icon name={item.kind === "Event" ? "calendar" : "check"} size={17} /></span>
+              <span><strong>{item.name}</strong><small>{fmtDate(item.date, { day: "numeric", month: "short" })} · {item.hours} hours</small></span>
+              <Status tone={item.status === "Late" ? "warning" : "success"}>{item.status}</Status>
+            </div>
+          )) : <p className="dashboard-insight-empty">Completed activities will appear here after attendance is recorded.</p>}
+        </section>
       </div>
       <div className="bottom-grid">
         <section className="panel contribution-panel">

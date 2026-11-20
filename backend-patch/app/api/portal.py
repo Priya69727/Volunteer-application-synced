@@ -14,7 +14,7 @@ from sqlalchemy import text
 from app.dependencies import CurrentUser, DbSession
 
 router = APIRouter(prefix="/api/portal", tags=["volunteer portal"])
-PORTAL_ROLES = {"Member", "Volunteer", "Admin", "Project Manager", "Staff"}
+PORTAL_ROLES = {"Member", "Volunteer"}
 OPEN_APPLICATION = ("New", "Applied", "Under Review", "Approved")
 DISPLAY_STATUS = {"New": "Pending", "Applied": "Pending", "Under Review": "Under review", "Approved": "Approved", "Rejected": "Rejected"}
 
@@ -61,7 +61,8 @@ def _profile_json(p, user) -> dict:
     return {
         "id": str(p["id"]), "fullName": p["full_name"], "email": p["email"] or user.email, "phone": p["phone"] or "",
         "location": p.get("city") or "", "about": p.get("about") or "", "skills": list(p["skills"] or []),
-        "unavailableDays": list(p.get("unavailable_days") or []), "status": p["status"], "joinedOn": _iso(p["joined_on"]), "role": user.role,
+        "unavailableDays": list(p.get("unavailable_days") or []), "communityVisible": bool(p.get("community_visible", True)),
+        "status": p["status"], "joinedOn": _iso(p["joined_on"]), "role": user.role,
     }
 
 
@@ -108,6 +109,7 @@ class ProfileUpdate(BaseModel):
     about: str | None = Field(default=None, max_length=1000)
     skills: list[str] | None = None
     unavailable_days: list[str] | None = Field(default=None, alias="unavailableDays")
+    community_visible: bool | None = Field(default=None, alias="communityVisible")
     model_config = {"populate_by_name": True}
 
 
@@ -119,7 +121,7 @@ def update_me(body: ProfileUpdate, user: CurrentUser, db: DbSession):
         raise HTTPException(404, "No volunteer profile for this account.")
     columns = {"full_name": body.full_name, "phone": body.phone, "city": body.location, "about": body.about,
                "skills": [s.strip() for s in body.skills if s.strip()][:40] if body.skills is not None else None,
-               "unavailable_days": body.unavailable_days}
+               "unavailable_days": body.unavailable_days, "community_visible": body.community_visible}
     values = {k: v for k, v in columns.items() if v is not None}
     if values:
         sets = ", ".join(f"{k} = :{k}" for k in values)
@@ -290,7 +292,13 @@ def contributions(user: CurrentUser, db: DbSession):
     _guard(user)
     p = _profile(db, user, create=False)
     if not p:
-        return {"items": [], "monthly": [], "byKind": []}
+        return {
+            "items": [],
+            "monthly": [],
+            "byKind": [],
+            "summary": {"currentMonth": 0, "previousMonth": 0, "currentYear": 0, "previousYear": 0, "attendanceRate": 0},
+            "recognitions": [],
+        }
     rows = db.execute(
         text(
             """SELECT att.attendance_date, att.status, att.hours, att.assignment_kind, att.target_label, a.role_title
@@ -311,11 +319,39 @@ def contributions(user: CurrentUser, db: DbSession):
         text("SELECT assignment_kind AS kind, SUM(hours) AS hours FROM volunteer_attendance WHERE volunteer_id=:v AND status IN ('Present','Late') GROUP BY 1 ORDER BY 2 DESC"),
         {"v": p["id"]},
     ).mappings().all()
+    summary = db.execute(
+        text(
+            """SELECT
+                   COALESCE(SUM(hours) FILTER (WHERE status IN ('Present','Late') AND attendance_date >= date_trunc('month', now())), 0) AS current_month,
+                   COALESCE(SUM(hours) FILTER (WHERE status IN ('Present','Late') AND attendance_date >= date_trunc('month', now()) - interval '1 month' AND attendance_date < date_trunc('month', now())), 0) AS previous_month,
+                   COALESCE(SUM(hours) FILTER (WHERE status IN ('Present','Late') AND attendance_date >= date_trunc('year', now())), 0) AS current_year,
+                   COALESCE(SUM(hours) FILTER (WHERE status IN ('Present','Late') AND attendance_date >= date_trunc('year', now()) - interval '1 year' AND attendance_date < date_trunc('year', now())), 0) AS previous_year,
+                   COUNT(*) AS attendance_records,
+                   COUNT(*) FILTER (WHERE status IN ('Present','Late')) AS attended_records
+               FROM volunteer_attendance WHERE volunteer_id = :v"""
+        ),
+        {"v": p["id"]},
+    ).mappings().one()
+    recognitions = db.execute(
+        text("SELECT title, recognition_type, issued_on FROM volunteer_recognitions WHERE volunteer_id = :v ORDER BY issued_on DESC, created_at DESC"),
+        {"v": p["id"]},
+    ).mappings().all()
     return {
         "items": [{"date": _iso(r["attendance_date"]), "name": r["target_label"] or "Volunteering", "kind": r["assignment_kind"], "role": r["role_title"] or "Volunteer",
                    "hours": float(r["hours"]), "status": r["status"]} for r in rows],
         "monthly": [{"month": r["month"], "hours": float(r["hours"])} for r in monthly],
         "byKind": [{"kind": r["kind"], "hours": float(r["hours"])} for r in kinds],
+        "summary": {
+            "currentMonth": float(summary["current_month"]),
+            "previousMonth": float(summary["previous_month"]),
+            "currentYear": float(summary["current_year"]),
+            "previousYear": float(summary["previous_year"]),
+            "attendanceRate": round(summary["attended_records"] / summary["attendance_records"] * 100, 1) if summary["attendance_records"] else 0,
+        },
+        "recognitions": [
+            {"title": row["title"], "type": row["recognition_type"], "issuedOn": _iso(row["issued_on"])}
+            for row in recognitions
+        ],
     }
 
 
@@ -337,5 +373,24 @@ def notifications(user: CurrentUser, db: DbSession):
             out.append({"id": f"asg-{r['id']}", "title": "New assignment", "body": f"You’ve been assigned as {r['role_title']}" + (f" for {r['target_label']}." if r["target_label"] else "."), "at": _iso(r["created_at"])})
         for r in db.execute(text("SELECT id, hours, target_label, created_at FROM volunteer_attendance WHERE volunteer_id=:v AND status IN ('Present','Late') ORDER BY created_at DESC LIMIT 10"), {"v": p["id"]}).mappings():
             out.append({"id": f"att-{r['id']}", "title": "Volunteer hours updated", "body": f"{float(r['hours']):g} hours from {r['target_label'] or 'your activity'} were added.", "at": _iso(r["created_at"])})
+        for r in db.execute(
+            text(
+                """SELECT id, title, body, created_at, read_at
+                   FROM community_notifications
+                   WHERE recipient_profile_id = :v
+                   ORDER BY created_at DESC
+                   LIMIT 30"""
+            ),
+            {"v": p["id"]},
+        ).mappings():
+            out.append(
+                {
+                    "id": f"community-{r['id']}",
+                    "title": r["title"],
+                    "body": r["body"],
+                    "at": _iso(r["created_at"]),
+                    "read": r["read_at"] is not None,
+                }
+            )
     out.sort(key=lambda n: n["at"] or "", reverse=True)
     return {"items": out[:30]}

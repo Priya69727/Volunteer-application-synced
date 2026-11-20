@@ -25,7 +25,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 }
 
 export type AuthUser = { id: string; fullName: string; email: string; role: string };
-export type Profile = { id: string; fullName: string; email: string; phone: string; location: string; about: string; skills: string[]; unavailableDays: string[]; status: string; joinedOn: string | null; role: string };
+export type Profile = { id: string; fullName: string; email: string; phone: string; location: string; about: string; skills: string[]; unavailableDays: string[]; communityVisible: boolean; status: string; joinedOn: string | null; role: string };
 export type Stats = { hours: number; days: number; events: number; projects: number; applications: number; activeApplications: number; assignments: number };
 export type Me = { profile: Profile; stats: Stats };
 export type Opportunity = {
@@ -42,8 +42,49 @@ export type Contributions = {
   items: { date: string; name: string; kind: string; role: string; hours: number; status: string }[];
   monthly: { month: string; hours: number }[];
   byKind: { kind: string; hours: number }[];
+  summary?: { currentMonth: number; previousMonth: number; currentYear: number; previousYear: number; attendanceRate: number };
+  recognitions?: { title: string; type: string; issuedOn: string | null }[];
 };
-export type PortalNotification = { id: string; title: string; body: string; at: string | null };
+export type PortalNotification = { id: string; title: string; body: string; at: string | null; read?: boolean };
+export type CommunityComment = { id: string; authorId: string; authorName: string; body: string; createdAt: string };
+export type CommunityPost = {
+  id: string;
+  authorId: string;
+  name: string;
+  place: string;
+  createdAt: string;
+  text: string;
+  image: string | null;
+  likesCount: number;
+  likedByMe: boolean;
+  reportedByMe: boolean;
+  comments: CommunityComment[];
+};
+export type CommunityPerson = {
+  id: string;
+  name: string;
+  place: string;
+  skills: string[];
+  initials: string;
+  postCount: number;
+  mutualConnections: number;
+  connectionStatus: "none" | "pending_sent" | "pending_received" | "connected";
+  connectionId: string | null;
+};
+export type CommunityConnection = { id: string; profileId: string; name: string; place: string; skills: string[]; createdAt: string };
+export type CommunityConnections = { incoming: CommunityConnection[]; outgoing: CommunityConnection[]; accepted: CommunityConnection[] };
+export type CommunityReport = { id: string; reason: string; createdAt: string; reporterName: string; post: CommunityPost };
+
+export function getProfileCompletion(profile: Pick<Profile, "fullName" | "phone" | "location" | "about" | "skills">) {
+  const completedFields = [
+    profile.fullName.trim().length > 0,
+    profile.phone.trim().length > 0,
+    profile.location.trim().length > 0,
+    profile.about.trim().length > 0,
+    profile.skills.length > 0,
+  ].filter(Boolean).length;
+  return Math.round((completedFields / 5) * 100);
+}
 
 export const api = {
   me: () => request<{ user: AuthUser }>("/auth/me"),
@@ -51,7 +92,7 @@ export const api = {
   register: (fullName: string, email: string, password: string) => request<{ user: AuthUser }>("/auth/register", { method: "POST", body: JSON.stringify({ fullName, email, password }) }),
   logout: () => request<void>("/auth/logout", { method: "POST" }),
   portalMe: () => request<Me>("/portal/me"),
-  updateProfile: (body: Partial<Pick<Profile, "fullName" | "phone" | "location" | "about" | "skills" | "unavailableDays">>) => request<Profile>("/portal/me", { method: "PATCH", body: JSON.stringify(body) }),
+  updateProfile: (body: Partial<Pick<Profile, "fullName" | "phone" | "location" | "about" | "skills" | "unavailableDays" | "communityVisible">>) => request<Profile>("/portal/me", { method: "PATCH", body: JSON.stringify(body) }),
   opportunities: (kind: "project" | "event" | "all" = "all") => request<{ items: Opportunity[] }>(`/portal/opportunities?kind=${kind}`),
   opportunity: (kind: "project" | "event", id: string) => request<Opportunity>(`/portal/opportunities/${kind}/${id}`),
   apply: (kind: "project" | "event", targetId: string, motivation = "") => request<{ id: string; status: string }>("/portal/applications", { method: "POST", body: JSON.stringify({ kind, targetId, motivation }) }),
@@ -60,6 +101,19 @@ export const api = {
   assignments: () => request<{ items: Assignment[] }>("/portal/assignments"),
   contributions: () => request<Contributions>("/portal/contributions"),
   notifications: () => request<{ items: PortalNotification[] }>("/portal/notifications"),
+  communityPosts: () => request<{ items: CommunityPost[] }>("/community/posts"),
+  createCommunityPost: (text: string, image?: string) => request<CommunityPost>("/community/posts", { method: "POST", body: JSON.stringify({ text, image }) }),
+  likeCommunityPost: (id: string) => request<{ liked: boolean }>(`/community/posts/${id}/likes`, { method: "POST" }),
+  unlikeCommunityPost: (id: string) => request<void>(`/community/posts/${id}/likes`, { method: "DELETE" }),
+  commentCommunityPost: (id: string, text: string) => request<CommunityComment>(`/community/posts/${id}/comments`, { method: "POST", body: JSON.stringify({ text }) }),
+  reportCommunityPost: (id: string, reason: string) => request<{ id: string; status: string }>(`/community/posts/${id}/reports`, { method: "POST", body: JSON.stringify({ reason }) }),
+  communityPeople: () => request<{ items: CommunityPerson[] }>("/community/people"),
+  communityConnections: () => request<CommunityConnections>("/community/connections"),
+  requestCommunityConnection: (profileId: string) => request<{ id: string; status: string }>("/community/connections", { method: "POST", body: JSON.stringify({ profileId }) }),
+  decideCommunityConnection: (id: string, action: "accept" | "decline") => request<{ id: string; status: string }>(`/community/connections/${id}`, { method: "PATCH", body: JSON.stringify({ action }) }),
+  markCommunityNotifications: (ids: string[], isRead: boolean) => request<{ updated: number }>("/community/notifications/read", { method: "PATCH", body: JSON.stringify({ ids: ids.map((id) => id.replace(/^community-/, "")), isRead }) }),
+  moderationReports: () => request<{ items: CommunityReport[] }>("/community/admin/reports"),
+  decideCommunityReport: (id: string, action: "dismiss" | "remove", note = "") => request<{ id: string; status: string }>(`/community/admin/reports/${id}/decision`, { method: "POST", body: JSON.stringify({ action, note }) }),
 };
 
 export const tones = { Pending: "info", "Under review": "warning", Approved: "success", Rejected: "danger" } as const;
